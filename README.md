@@ -1,1 +1,0 @@
-# xinling-assistant
