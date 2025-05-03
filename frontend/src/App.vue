@@ -1,85 +1,119 @@
 <template>
   <div class="app-container">
-    <div class="particles">
-      <div v-for="n in 50" :key="n" class="particle"></div>
-    </div>
-    <div class="light-beams">
-      <div v-for="n in 5" :key="n" class="beam"></div>
-    </div>
-    <div class="floating-elements">
-      <div v-for="n in 12" :key="n" class="floating-element">
-        <i :class="['fas', getFloatingIcon(n)]"></i>
-      </div>
-    </div>
-    <header class="header">
-      <div class="logo">
-        <h1>心聆助手</h1>
-        <p class="subtitle">温暖陪伴，守护心灵</p>
-      </div>
-    </header>
-    <main class="main-content">
-      <!-- 聊天主容器 -->
-      <div class="chat-container">
-        <div class="chat-header">
-          <div class="therapist-info">
-            <div class="avatar" @click="handleHeartClick" :class="{ clicked: isHeartClicked }">
-              <i class="fas fa-heart"></i>
-            </div>
-            <div class="info">
-              <h3>小南心</h3>
-              <p class="subtitle">专业倾听，温暖陪伴</p>
-            </div>
-          </div>
-          <!-- 新增：鸡汤语录及爱心按钮 -->
-          <div class="header-quote-box">
-            <transition name="fade-float">
-              <span class="header-quote-text" v-if="currentQuote" :key="currentQuote">{{ currentQuote }}</span>
-            </transition>
-            <button class="header-quote-btn" @click="changeQuote" title="换一句鸡汤">
-              <i class="fas fa-heart"></i>
-            </button>
-          </div>
+    <!-- 仅显示一个箭头，点击后弹出菜单 -->
+    <div class="sidebar-arrow-container">
+      <button class="sidebar-arrow-btn" @click="sidebarVisible = !sidebarVisible">
+        <i :class="sidebarVisible ? 'fas fa-chevron-left' : 'fas fa-chevron-right'"></i>
+      </button>
+      <transition name="sidebar-fade">
+        <div v-if="sidebarVisible" class="sidebar-popup">
+          <ul>
+            <li :class="{active: currentTab==='station'}" @click="switchTab('station')">
+              <i class="fas fa-comments"></i>
+              <span>心理驿站</span>
+            </li>
+            <li :class="{active: currentTab==='assessment'}" @click="switchTab('assessment')">
+              <i class="fas fa-heartbeat"></i>
+              <span>心理评估</span>
+            </li>
+            <li :class="{active: currentTab==='science'}" @click="switchTab('science')">
+              <i class="fas fa-book-open"></i>
+              <span>心理科普</span>
+            </li>
+          </ul>
         </div>
-        <div class="chat-layout">
-          <div class="chat-messages" ref="chatMessages">
-            <div v-for="(message, index) in messages" :key="index" :class="['message', message.role]">
-              <div class="message-content">
-                <div class="message-bubble">
-                  <div class="text">{{ message.content }}</div>
-                  <span class="time">{{ message.time }}</span>
+      </transition>
+    </div>
+    <div class="main-content-full">
+      <header class="header">
+        <div class="logo">
+          <h1>心聆助手</h1>
+          <p class="subtitle">温暖陪伴，守护心灵</p>
+        </div>
+      </header>
+      <main class="main-content">
+        <div v-if="currentTab==='station'">
+          <!-- 聊天主容器 -->
+          <div class="chat-container">
+            <div class="particles">
+              <div v-for="n in 50" :key="n" class="particle"></div>
+            </div>
+            <div class="light-beams">
+              <div v-for="n in 5" :key="n" class="beam"></div>
+            </div>
+            <div class="floating-elements">
+              <div v-for="n in 12" :key="n" class="floating-element">
+                <i :class="['fas', getFloatingIcon(n)]"></i>
+              </div>
+            </div>
+            <div class="chat-header">
+              <div class="therapist-info">
+                <div class="avatar" @click="handleHeartClick" :class="{ clicked: isHeartClicked }">
+                  <i class="fas fa-heart"></i>
+                </div>
+                <div class="info">
+                  <h3>小南心</h3>
+                  <p class="subtitle">专业倾听，温暖陪伴</p>
+                </div>
+              </div>
+              <!-- 新增：鸡汤语录及爱心按钮 -->
+              <div class="header-quote-box">
+                <transition name="fade-float">
+                  <span class="header-quote-text" v-if="currentQuote" :key="currentQuote">{{ currentQuote }}</span>
+                </transition>
+                <button class="header-quote-btn" @click="changeQuote" title="换一句鸡汤">
+                  <i class="fas fa-heart"></i>
+                </button>
+              </div>
+            </div>
+            <div class="chat-layout">
+              <div class="chat-messages" ref="chatMessages">
+                <div v-for="(message, index) in messages" :key="index" :class="['message', message.role]">
+                  <div class="message-content">
+                    <div class="message-bubble">
+                      <div class="text">{{ message.content }}</div>
+                      <span class="time">{{ message.time }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="emotion-sidebar">
+                <div class="emotion-status" :class="{ animate: isStatusAnimating }">
+                  <h4>当前情绪状态</h4>
+                  <div class="emotion-icon" :class="{ animate: isIconAnimating }">
+                    <i :class="currentEmotion.icon"></i>
+                  </div>
+                  <p class="emotion-text">{{ currentEmotion.text }}</p>
+                </div>
+                <div class="emotion-chart" :class="{ animate: isChartAnimating }">
+                  <h4>情绪波动</h4>
+                  <canvas ref="emotionChart"></canvas>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="emotion-sidebar">
-            <div class="emotion-status" :class="{ animate: isStatusAnimating }">
-              <h4>当前情绪状态</h4>
-              <div class="emotion-icon" :class="{ animate: isIconAnimating }">
-                <i :class="currentEmotion.icon"></i>
+            <div class="input-area">
+              <div class="input-wrapper">
+                <textarea 
+                  v-model="userInput"
+                  @keyup.enter="sendMessage"
+                  placeholder="你今天有什么困惑吗..."
+                  rows="3"
+                ></textarea>
+                <button class="send-btn" @click="sendMessage">
+                  发送 <i class="fas fa-paper-plane"></i>
+                </button>
               </div>
-              <p class="emotion-text">{{ currentEmotion.text }}</p>
-            </div>
-            <div class="emotion-chart" :class="{ animate: isChartAnimating }">
-              <h4>情绪波动</h4>
-              <canvas ref="emotionChart"></canvas>
             </div>
           </div>
         </div>
-        <div class="input-area">
-          <div class="input-wrapper">
-            <textarea 
-              v-model="userInput"
-              @keyup.enter="sendMessage"
-              placeholder="你今天有什么困惑吗..."
-              rows="3"
-            ></textarea>
-            <button class="send-btn" @click="sendMessage">
-              发送 <i class="fas fa-paper-plane"></i>
-            </button>
-          </div>
+        <div v-else-if="currentTab==='assessment'">
+          <div class="feature-placeholder">心理评估功能开发中...</div>
         </div>
-      </div>
-    </main>
+        <div v-else-if="currentTab==='science'">
+          <div class="feature-placeholder">心理科普功能开发中...</div>
+        </div>
+      </main>
+    </div>
   </div>
 </template>
 
@@ -108,6 +142,8 @@ export default defineComponent({
       isIconAnimating: false,
       isChartAnimating: false,
       currentQuote: '', // 当前显示的鸡汤语录
+      currentTab: 'station',
+      sidebarVisible: false
     }
   },
   mounted() {
@@ -281,6 +317,10 @@ export default defineComponent({
         idx = Math.floor(Math.random() * dailyQuotes.length);
       } while (dailyQuotes[idx] === this.currentQuote && dailyQuotes.length > 1);
       this.currentQuote = dailyQuotes[idx];
+    },
+    switchTab(tab) {
+      this.currentTab = tab;
+      this.sidebarVisible = false;
     },
   }
 })
@@ -1665,13 +1705,6 @@ textarea:focus {
   100% { opacity: 1; transform: scale(1);}
 }
 
-.fade-float-enter-active, .fade-float-leave-active {
-  transition: opacity 0.5s;
-}
-.fade-float-enter-from, .fade-float-leave-to {
-  opacity: 0;
-}
-
 /* 响应式优化 */
 @media (max-width: 768px) {
   .header-quote-box {
@@ -1687,6 +1720,132 @@ textarea:focus {
     width: 28px;
     height: 28px;
     font-size: 1rem;
+  }
+}
+
+/* 仅显示箭头，弹出菜单浮层 */
+.sidebar-arrow-container {
+  position: fixed;
+  top: 60px;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.sidebar-arrow-btn {
+  background: #fff0f6;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  color: #d6336c;
+  box-shadow: 0 2px 8px #ffd6e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1em;
+  cursor: pointer;
+  margin-left: 4px;
+  margin-bottom: 6px;
+  transition: background 0.3s;
+}
+.sidebar-arrow-btn:hover {
+  background: #ffd6e0;
+}
+.sidebar-popup {
+  position: absolute;
+  left: 40px;
+  top: 0;
+  background: linear-gradient(135deg, #fff0f6 0%, #ffd6e0 100%);
+  border-radius: 18px;
+  box-shadow: 2px 4px 24px 0 rgba(255,182,193,0.18), 0 2px 8px #ffd6e0;
+  padding: 12px 0;
+  min-width: 120px;
+  margin-top: 0;
+  animation: dropdown-pop 0.3s;
+  z-index: 1001;
+}
+@keyframes dropdown-pop {
+  0% { transform: scale(0.8) translateY(-10px); opacity: 0;}
+  100% { transform: scale(1) translateY(0); opacity: 1;}
+}
+.sidebar-popup ul {
+  list-style: none;
+  padding: 0 10px;
+  margin: 0;
+}
+.sidebar-popup li {
+  display: flex;
+  align-items: center;
+  color: #d6336c;
+  font-size: 0.98em;
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  transition: background 0.2s, color 0.2s;
+  font-family: 'ZCOOL KuaiLe', 'FZYaoti', 'STSong', 'KaiTi', 'Arial', sans-serif;
+  letter-spacing: 1px;
+  position: relative;
+}
+.sidebar-popup li.active,
+.sidebar-popup li:hover {
+  background: #ffe4ec;
+  color: #ff69b4;
+  font-weight: bold;
+}
+.sidebar-popup i {
+  font-size: 1.1em;
+  margin-right: 8px;
+  transition: color 0.2s;
+}
+.sidebar-popup span {
+  font-size: 0.98em;
+  user-select: none;
+}
+.sidebar-fade-enter-active, .sidebar-fade-leave-active {
+  transition: opacity 0.2s;
+}
+.sidebar-fade-enter-from, .sidebar-fade-leave-to {
+  opacity: 0;
+}
+
+.main-content-full {
+  margin-left: 0;
+  width: 100vw;
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 0;
+  background: transparent;
+}
+@media (max-width: 768px) {
+  .sidebar-arrow-container {
+    top: 10px;
+  }
+  .sidebar-arrow-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 1em;
+    margin-left: 0;
+  }
+  .sidebar-popup {
+    left: 28px;
+    min-width: 90px;
+    padding: 6px 0;
+  }
+  .sidebar-popup li {
+    font-size: 0.85em;
+    padding: 6px 8px;
+  }
+  .main-content-full {
+    margin-left: 0;
+    width: 100vw;
+    min-width: 0;
+    padding: 0;
   }
 }
 </style> 
