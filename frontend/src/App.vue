@@ -18,7 +18,7 @@
             </li>
             <li :class="{active: currentTab==='science'}" @click="switchTab('science')">
               <i class="fas fa-book-open"></i>
-              <span>心理科普</span>
+              <span>心理小屋</span>
             </li>
           </ul>
         </div>
@@ -217,7 +217,7 @@
           </div>
         </div>
         <div v-else-if="currentTab==='science'">
-          <div class="feature-placeholder">心理科普功能开发中...</div>
+          <ScienceHouse />
         </div>
       </main>
     </div>
@@ -234,11 +234,13 @@ import { Chart, registerables } from 'chart.js';
 import { defineComponent, onMounted, ref } from 'vue';
 import dailyQuotes from './daily_quotes.json'; // 导入鸡汤语录
 import { PHQ9 } from './assessments/phq9';
+import ScienceHouse from './components/ScienceHouse.vue';
 
 Chart.register(...registerables);
 
 export default defineComponent({
   name: 'App',
+  components: { ScienceHouse },
   data() {
     return {
       messages: [],
@@ -700,6 +702,53 @@ body {
   overflow: hidden;
 }
 
+/* 修复心理评估窗口聊天区布局 */
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 0;
+  box-shadow: none;
+  min-height: calc(100vh - 80px);
+  border: none;
+  position: relative;
+  overflow: hidden; /* 防止内容溢出 */
+}
+
+.chat-layout {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  overflow: hidden; /* 防止内容溢出 */
+  position: relative;
+  height: calc(100vh - 240px); /* 减去头部和输入框的高度 */
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: transparent;
+  min-width: 0;
+  scroll-behavior: smooth;
+  height: 100%; /* 确保占满容器高度 */
+  position: relative;
+}
+
+.input-area {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  z-index: 2;
+  padding: 15px;
+  border-top: 1px solid rgba(255, 182, 193, 0.2);
+}
+
 .particles {
   position: fixed;
   top: 0;
@@ -1154,6 +1203,7 @@ body {
   min-height: calc(100vh - 80px);
   border: none;
   position: relative;
+  overflow: hidden; /* 防止内容溢出 */
 }
 
 .chat-header {
@@ -1273,8 +1323,9 @@ body {
   display: flex;
   gap: 20px;
   padding: 20px;
-  overflow: hidden;
+  overflow: hidden; /* 防止内容溢出 */
   position: relative;
+  height: calc(100vh - 240px); /* 减去头部和输入框的高度 */
 }
 
 .chat-messages {
@@ -1287,6 +1338,8 @@ body {
   background: transparent;
   min-width: 0;
   scroll-behavior: smooth;
+  height: 100%; /* 确保占满容器高度 */
+  position: relative;
 }
 
 .message {
