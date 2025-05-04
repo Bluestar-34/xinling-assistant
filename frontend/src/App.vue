@@ -70,7 +70,12 @@
               <div class="chat-messages" ref="chatMessages">
                 <div v-for="(message, index) in messages" :key="index" :class="['message', message.role]">
                   <div class="message-content">
-                    <div class="message-bubble">
+                    <div class="message-bubble" :class="{ typing: message.typing }">
+                      <div v-if="message.typing" class="typing-indicator">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                      </div>
                       <div class="text">{{ message.content }}</div>
                       <span class="time">{{ message.time }}</span>
                     </div>
@@ -216,6 +221,11 @@
         </div>
       </main>
     </div>
+    <transition name="bubble-float">
+      <div v-if="showReportBubble" class="report-bubble">
+        <span>你的专属心理报告正在生成，请不要离开哦</span>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -262,6 +272,7 @@ export default defineComponent({
       assessmentContext: [], // 存储评估过程中的对话上下文
       currentQuestion: null,
       assessmentSummary: null,
+      showReportBubble: false,
     }
   },
   mounted() {
@@ -474,6 +485,7 @@ export default defineComponent({
           this.askNextAssessmentQuestion();
         }, 1200);
       }
+      this.showAssessmentOptions = false; // 选择后自动收起下拉
     },
     askNextAssessmentQuestion() {
       const q = this.currentAssessment.questions[this.currentQuestionIndex];
@@ -498,7 +510,6 @@ export default defineComponent({
       // 轮答：校验并记录答案
       const q = this.currentAssessment.questions[this.currentQuestionIndex];
       const answer = this.assessmentInput.trim();
-      // 支持数字或文本
       let matched = null;
       const idx = parseInt(answer, 10);
       if (!isNaN(idx) && idx >= 1 && idx <= q.options.length) {
@@ -525,18 +536,76 @@ export default defineComponent({
           this.assessmentStatus = '评估已完成';
           this.assessmentProgress = 100;
           this.assessmentInput = '';
+          // 优化结束词
           const finishMsg = {
             role: 'assistant',
-            content: '你已经完成了所有题目，感谢你的认真作答！你的每一个答案都已被记录。需要分析结果或有任何想法，随时告诉我，我会一直陪着你。',
+            content: '🎉 恭喜你完成了PHQ-9抑郁自评量表的全部题目！你的每一个答案都像一颗小星星，照亮了你内心的世界。感谢你信任地分享自己的感受，这本身就是一种勇敢和自我关怀。无论分数如何，你都值得被理解和支持。接下来，我会为你梳理和分析刚才的答题信息，给出温暖、专业的反馈。之后你可以随时和我自由交流，无论是聊聊心情、生活，还是有任何困惑，我都会耐心聆听，陪伴你前行。',
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
           };
           this.assessmentMessages.push(finishMsg);
+          // 1. 打包用户信息为prompt
+          const mood = this.assessmentMessages.find(msg => msg.role === 'user');
+          let intro = '';
+          if (mood) {
+            intro = `用户在欢迎阶段的心情描述：${mood.content}\n`;
+          }
+          let qa = this.currentAssessment.questions.map((q, idx) => {
+            const ans = this.assessmentAnswers[idx];
+            return `${idx + 1}. ${q.text}：${ans ? ans.text : ''}`;
+          }).join('\n');
+          const summaryPrompt = `${intro}以下是用户的PHQ-9答题情况：\n${qa}\n请用温暖、生动、专业的语言为用户做一个心理状态总结和打分分析。`;
+          // 2. 显示气泡提示
+          this.showReportBubble = true;
+          // 3. 切换为心理驿站模式并调用AI分析
+          setTimeout(async () => {
+            this.currentTab = 'station';
+            this.messages = [...this.messages, ...this.assessmentMessages];
+            // 先推送动态打字气泡"正在挖掘心里的小九九..."
+            const typingBubble = {
+              role: 'assistant',
+              typing: true,
+              content: '正在挖掘心里的小九九...',
+              time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+            };
+            this.messages.push(typingBubble);
+            // 调用AI生成总结
+            const aiRes = await fetch('http://localhost:8000/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: summaryPrompt,
+                session_id: this.sessionId
+              })
+            });
+            const aiData = await aiRes.json();
+            if (aiData.session_id) {
+              this.sessionId = aiData.session_id;
+            }
+            const summaryMessage = aiData.response || '评估总结已生成。如需进一步交流，请随时告诉我。';
+            // 替换动态气泡为正式总结
+            const idx = this.messages.findIndex(m => m === typingBubble);
+            if (idx !== -1) {
+              this.messages.splice(idx, 1, {
+                role: 'assistant',
+                content: summaryMessage,
+                time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+              });
+            } else {
+              this.messages.push({
+                role: 'assistant',
+                content: summaryMessage,
+                time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+              });
+            }
+            // 4. 隐藏气泡
+            this.showReportBubble = false;
+          }, 1800);
         }
       } else {
         // 错误提示
         const errMsg = {
           role: 'assistant',
-          content: '抱歉，我没有理解你的回答。请直接输入选项前的数字或完整内容：' + q.options.map((o, i) => `${i + 1}. ${o.text}`).join('  '),
+          content: '啊，我们不是在进行心理评估吗？我还没明白你的选择呢～请再试一次吧！直接输入选项前的数字或完整内容就好哦：' + q.options.map((o, i) => `${i + 1}. ${o.text}`).join('  '),
           time: time
         };
         this.assessmentMessages.push(errMsg);
@@ -2349,5 +2418,33 @@ textarea:focus {
 .assessment-popup-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+.report-bubble {
+  position: fixed;
+  left: 50%;
+  top: 120px;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #ffe0f7 0%, #b5eaff 100%);
+  color: #d6336c;
+  font-size: 1.15em;
+  padding: 18px 32px;
+  border-radius: 32px;
+  box-shadow: 0 8px 32px rgba(255,182,193,0.18), 0 2px 8px #ffd6e0;
+  z-index: 9999;
+  animation: bubble-float 2.5s infinite ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@keyframes bubble-float {
+  0%, 100% { transform: translateX(-50%) translateY(0);}
+  50% { transform: translateX(-50%) translateY(-18px);}
+}
+.bubble-float-enter-active, .bubble-float-leave-active {
+  transition: opacity 0.5s;
+}
+.bubble-float-enter-from, .bubble-float-leave-to {
+  opacity: 0;
 }
 </style> 
