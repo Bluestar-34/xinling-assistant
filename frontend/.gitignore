@@ -1,0 +1,33 @@
+# 忽略 node_modules 和构建产物
+/node_modules
+/dist
+
+# 忽略编辑器配置
+/.vscode
+/.idea
+
+# 忽略日志文件
+*.log
+
+# 忽略系统文件
+.DS_Store
+
+# 忽略测试覆盖率报告
+/coverage
+
+# 忽略本地环境变量文件
+.env.local
+.env.*.local
+
+# 确保主要部分被上传
+!/src
+!/public
+!/package.json
+!/package-lock.json
+!/README.md
+!/.env
+!/.env.development
+!/.env.production
+!/vite.config.js
+!/tsconfig.json
+!/index.html 

@@ -58,6 +58,7 @@ SYSTEM_PROMPT = """你是一位专业的心理咨询师，名叫小南心。你�
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    system_prompt: Optional[str] = None
 
     class Config:
         json_schema_extra = {
@@ -85,10 +86,10 @@ class ChatResponse(BaseModel):
             }
         }
 
-def get_ai_response(message: str, context: list = None) -> str:
+def get_ai_response(message: str, context: list = None, system_prompt: str = None) -> str:
     """获取AI回复"""
     try:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
         
         # 添加上下文消息
         if context:
@@ -189,7 +190,7 @@ async def chat(request: ChatRequest):
         context_manager.add_message(session_id, "user", request.message)
         
         # 获取AI回复
-        assistant_message = get_ai_response(request.message, context)
+        assistant_message = get_ai_response(request.message, context, request.system_prompt)
         
         # 记录AI回复
         context_manager.add_message(session_id, "assistant", assistant_message)
