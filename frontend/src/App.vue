@@ -107,7 +107,83 @@
           </div>
         </div>
         <div v-else-if="currentTab==='assessment'">
-          <div class="feature-placeholder">心理评估功能开发中...</div>
+          <div class="chat-container">
+            <div class="particles">
+              <div v-for="n in 50" :key="n" class="particle"></div>
+            </div>
+            <div class="light-beams">
+              <div v-for="n in 5" :key="n" class="beam"></div>
+            </div>
+            <div class="floating-elements">
+              <div v-for="n in 12" :key="n" class="floating-element">
+                <i :class="['fas', getFloatingIcon(n)]"></i>
+              </div>
+            </div>
+            <div class="chat-header">
+              <div class="therapist-info">
+                <div class="avatar" @click="handleAssessmentClick" :class="{ clicked: isAssessmentClicked }">
+                  <i class="fas fa-clipboard-check"></i>
+                </div>
+                <div class="info">
+                  <h3>心理评估</h3>
+                  <p class="subtitle">专业评估，科学指导</p>
+                </div>
+              </div>
+              <transition name="assessment-popup">
+                <div v-if="showAssessmentOptions" class="assessment-options">
+                  <div class="option-item" @click="selectAssessment('PHQ-9')">
+                    <i class="fas fa-file-medical"></i>
+                    <span>PHQ-9 抑郁筛查</span>
+                  </div>
+                  <div class="option-item" @click="selectAssessment('GAD-7')">
+                    <i class="fas fa-brain"></i>
+                    <span>GAD-7 焦虑筛查</span>
+                  </div>
+                </div>
+              </transition>
+            </div>
+            <div class="chat-layout">
+              <div class="chat-messages" ref="assessmentMessages">
+                <div v-for="(message, index) in assessmentMessages" :key="index" :class="['message', message.role]">
+                  <div class="message-content">
+                    <div class="message-bubble">
+                      <div class="text">{{ message.content }}</div>
+                      <span class="time">{{ message.time }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="assessment-sidebar">
+                <div class="assessment-progress">
+                  <h4>评估进度</h4>
+                  <div class="progress-bar">
+                    <div class="progress" :style="{ width: assessmentProgress + '%' }"></div>
+                  </div>
+                  <p class="progress-text">{{ assessmentProgress }}%</p>
+                </div>
+                <div class="assessment-status">
+                  <h4>当前状态</h4>
+                  <div class="status-content">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>正在评估中...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="input-area">
+              <div class="input-wrapper">
+                <textarea 
+                  v-model="assessmentInput"
+                  @keyup.enter="sendAssessmentMessage"
+                  placeholder="请输入你的回答..."
+                  rows="3"
+                ></textarea>
+                <button class="send-btn" @click="sendAssessmentMessage">
+                  提交 <i class="fas fa-paper-plane"></i>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
         <div v-else-if="currentTab==='science'">
           <div class="feature-placeholder">心理科普功能开发中...</div>
@@ -143,7 +219,12 @@ export default defineComponent({
       isChartAnimating: false,
       currentQuote: '', // 当前显示的鸡汤语录
       currentTab: 'station',
-      sidebarVisible: false
+      sidebarVisible: false,
+      assessmentMessages: [],
+      assessmentInput: '',
+      assessmentProgress: 0,
+      isAssessmentClicked: false,
+      showAssessmentOptions: false
     }
   },
   mounted() {
@@ -322,6 +403,46 @@ export default defineComponent({
       this.currentTab = tab;
       this.sidebarVisible = false;
     },
+    sendAssessmentMessage() {
+      if (!this.assessmentInput.trim()) return;
+      const now = new Date();
+      const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      
+      this.assessmentMessages.push({
+        role: 'user',
+        content: this.assessmentInput,
+        time: time
+      });
+      
+      // 模拟进度更新
+      this.assessmentProgress = Math.min(this.assessmentProgress + 10, 100);
+      
+      const message = this.assessmentInput;
+      this.assessmentInput = '';
+      
+      // TODO: 实现与后端的实际交互
+      setTimeout(() => {
+        this.assessmentMessages.push({
+          role: 'assistant',
+          content: '感谢您的回答，我们正在分析中...',
+          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        });
+      }, 1000);
+    },
+    handleAssessmentClick() {
+      this.isAssessmentClicked = true;
+      this.showAssessmentOptions = !this.showAssessmentOptions;
+      
+      // 重置点击状态
+      setTimeout(() => {
+        this.isAssessmentClicked = false;
+      }, 800);
+    },
+    selectAssessment(type) {
+      console.log('Selected assessment:', type);
+      this.showAssessmentOptions = false;
+      // TODO: 实现选择评估表后的逻辑
+    }
   }
 })
 </script>
@@ -1846,6 +1967,165 @@ textarea:focus {
     width: 100vw;
     min-width: 0;
     padding: 0;
+  }
+}
+
+.assessment-sidebar {
+  width: 240px;
+  background: rgba(255, 255, 255, 0.75);
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  backdrop-filter: blur(10px);
+  flex-shrink: 0;
+}
+
+.assessment-progress {
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  padding: 15px;
+  box-shadow: 
+    0 4px 15px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.assessment-progress h4 {
+  margin: 0 0 15px 0;
+  color: var(--primary-color);
+  font-size: 1.1em;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 182, 193, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), #ffc0cb);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  text-align: center;
+  color: var(--primary-color);
+  font-size: 0.9em;
+  margin: 0;
+}
+
+.assessment-status {
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  padding: 15px;
+  box-shadow: 
+    0 4px 15px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.assessment-status h4 {
+  margin: 0 0 15px 0;
+  color: var(--primary-color);
+  font-size: 1.1em;
+}
+
+.status-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--primary-color);
+}
+
+.status-content i {
+  font-size: 1.2em;
+}
+
+.status-content p {
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.assessment-options {
+  position: absolute;
+  top: 100%;
+  left: 20px;
+  background: linear-gradient(135deg, #fff0f6 0%, #ffd6e0 100%);
+  border-radius: 16px;
+  padding: 12px;
+  margin-top: 10px;
+  box-shadow: 
+    0 8px 32px rgba(255, 182, 193, 0.2),
+    0 2px 8px rgba(255, 182, 193, 0.1);
+  z-index: 1000;
+  min-width: 200px;
+  transform-origin: top center;
+}
+
+.option-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  color: var(--primary-color);
+  cursor: pointer;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  font-size: 0.95em;
+}
+
+.option-item:hover {
+  background: rgba(255, 255, 255, 0.8);
+  transform: translateX(5px);
+}
+
+.option-item i {
+  font-size: 1.2em;
+  width: 24px;
+  text-align: center;
+}
+
+.assessment-popup-enter-active,
+.assessment-popup-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.assessment-popup-enter-from,
+.assessment-popup-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+}
+
+.avatar.clicked i {
+  animation: check-bounce 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #ff4d6d;
+}
+
+@keyframes check-bounce {
+  0% {
+    transform: scale(1);
+  }
+  20% {
+    transform: scale(1.4) rotate(-10deg);
+  }
+  40% {
+    transform: scale(0.9) rotate(10deg);
+  }
+  60% {
+    transform: scale(1.1) rotate(-5deg);
+  }
+  80% {
+    transform: scale(0.95) rotate(5deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
   }
 }
 </style> 
