@@ -5,10 +5,11 @@ import os
 from dotenv import load_dotenv
 import requests
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
 from database import get_db, SessionManager
 from models import Base, engine
 from context_manager import ContextManager
+from assessment_manager import AssessmentManager
 import json
 
 # 加载环境变量（从根目录加载）
@@ -39,6 +40,7 @@ if not API_TOKEN:
 db = next(get_db())
 session_manager = SessionManager(db)
 context_manager = ContextManager(session_manager)
+assessment_manager = AssessmentManager(session_manager)
 
 # 系统提示词
 SYSTEM_PROMPT = """你是一位专业的心理咨询师，名叫小南心。你的职责是：
@@ -58,12 +60,14 @@ SYSTEM_PROMPT = """你是一位专业的心理咨询师，名叫小南心。你�
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
 
     class Config:
         json_schema_extra = {
             "example": {
                 "message": "你好",
-                "session_id": None
+                "session_id": None,
+                "context": None
             }
         }
 
@@ -85,7 +89,7 @@ class ChatResponse(BaseModel):
             }
         }
 
-def get_ai_response(message: str, context: list = None) -> str:
+def get_ai_response(message: str, context: list = None, assessment_context: Dict = None) -> str:
     """获取AI回复"""
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -93,6 +97,11 @@ def get_ai_response(message: str, context: list = None) -> str:
         # 添加上下文消息
         if context:
             messages.extend(context)
+        
+        # 添加评估上下文
+        if assessment_context:
+            assessment_prompt = generate_assessment_prompt(assessment_context)
+            messages.append({"role": "system", "content": assessment_prompt})
         
         # 添加当前用户消息
         messages.append({"role": "user", "content": message})
@@ -174,6 +183,26 @@ def get_ai_response(message: str, context: list = None) -> str:
         print(f"错误堆栈: {traceback.format_exc()}")
         return "抱歉，我需要一点时间来思考。请您重新表达一下。"
 
+def generate_assessment_prompt(context: Dict) -> str:
+    """生成评估相关的提示词"""
+    prompt = "你现在正在进行心理评估。"
+    
+    if context.get("type") == "assessment_start":
+        prompt += f"\n你正在开始{context.get('assessment_type')}评估。请以温暖、专业的态度引导用户完成评估。"
+    elif context.get("type") == "assessment":
+        prompt += f"\n你正在进行{context.get('assessment_type')}评估。"
+        if context.get("is_complete"):
+            prompt += "\n评估已经完成，请根据评估结果提供适当的建议和支持。"
+    elif context.get("type") == "assessment_complete":
+        prompt += f"\n{context.get('assessment_type')}评估已完成。"
+        result = context.get("result", {})
+        prompt += f"\n评估结果：{result.get('interpretation', {}).get('level')}"
+        prompt += f"\n{result.get('interpretation', {}).get('description')}"
+        if result.get("suicide_risk"):
+            prompt += f"\n注意：{result.get('suicide_risk')}"
+    
+    return prompt
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     try:
@@ -189,7 +218,11 @@ async def chat(request: ChatRequest):
         context_manager.add_message(session_id, "user", request.message)
         
         # 获取AI回复
-        assistant_message = get_ai_response(request.message, context)
+        assistant_message = get_ai_response(
+            request.message, 
+            context,
+            request.context
+        )
         
         # 记录AI回复
         context_manager.add_message(session_id, "assistant", assistant_message)
@@ -231,6 +264,92 @@ async def delete_session(session_id: str):
     context_manager.cleanup_context(session_id)
     session_manager.delete_session(session_id)
     return {"message": "会话已删除"}
+
+@app.post("/api/assessment/start")
+async def start_assessment(session_id: str, assessment_type: str):
+    """开始新的评估"""
+    try:
+        assessment_session = assessment_manager.create_assessment_session(
+            session_id,
+            assessment_type
+        )
+        
+        assessment_info = assessment_manager.get_assessment_info(assessment_type)
+        if not assessment_info:
+            raise HTTPException(status_code=404, detail="评估类型不存在")
+            
+        return {
+            "session_id": session_id,
+            "assessment_type": assessment_type,
+            "assessment_info": assessment_info
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/assessment/answer")
+async def submit_answer(session_id: str, question_id: int, answer: int):
+    """提交评估答案"""
+    try:
+        assessment_answer = assessment_manager.add_answer(
+            session_id,
+            question_id,
+            answer
+        )
+        return {
+            "session_id": session_id,
+            "question_id": question_id,
+            "answer": answer
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/assessment/complete")
+async def complete_assessment(session_id: str):
+    """完成评估"""
+    try:
+        assessment_session = assessment_manager.complete_assessment(session_id)
+        assessment_result = assessment_manager.get_assessment_result(session_id)
+        
+        return {
+            "session_id": session_id,
+            "assessment_type": assessment_session.assessment_type,
+            "result": assessment_result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/assessment/{session_id}")
+async def get_assessment(session_id: str):
+    """获取评估信息"""
+    try:
+        assessment_session = assessment_manager.session_manager.db.query(AssessmentSession)\
+            .filter(AssessmentSession.session_id == session_id)\
+            .first()
+            
+        if not assessment_session:
+            raise HTTPException(status_code=404, detail="评估会话不存在")
+            
+        assessment_info = assessment_manager.get_assessment_info(
+            assessment_session.assessment_type
+        )
+        
+        answers = assessment_manager.get_assessment_answers(session_id)
+        
+        return {
+            "session_id": session_id,
+            "assessment_type": assessment_session.assessment_type,
+            "status": assessment_session.status,
+            "assessment_info": assessment_info,
+            "answers": [
+                {
+                    "question_id": answer.question_id,
+                    "answer": answer.answer
+                }
+                for answer in answers
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

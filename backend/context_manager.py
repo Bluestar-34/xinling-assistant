@@ -12,6 +12,8 @@ class ContextManager:
         self.context_window = 10  # 上下文窗口大小
         self.summary_threshold = 20  # 触发总结的消息数量阈值
         self.user_info = {}  # 存储用户信息
+        self.max_history = 20  # 最大历史消息数
+        self.max_age = timedelta(hours=24)  # 会话最大保存时间
         
         # 系统提示词
         self.system_prompt = """你是一个专业的心理咨询师，名叫小南心。你需要：
@@ -171,60 +173,47 @@ class ContextManager:
             self.session_manager.add_message(session_id, msg.role, msg.content)
 
     def get_session_summary(self, session_id: str) -> Dict[str, Any]:
-        """获取会话总结"""
+        """获取会话统计信息"""
         messages = self.session_manager.get_messages(session_id)
-        stats = self.session_manager.get_session_stats(session_id)
+        if not messages:
+            return {
+                "message_count": 0,
+                "duration": "0:00:00",
+                "user_info": {}
+            }
+            
+        # 计算消息数量
+        message_count = len(messages)
         
-        # 分析对话主题和情感
-        topics = self._extract_topics(messages)
-        emotions = self._analyze_emotions(messages)
+        # 计算会话持续时间
+        first_message = min(messages, key=lambda x: x.created_at)
+        last_message = max(messages, key=lambda x: x.created_at)
+        duration = last_message.created_at - first_message.created_at
         
-        summary = {
-            "message_count": len(messages),
-            "duration": stats["duration"],
-            "user_info": self.user_info.get(session_id, {}),
-            "topics": topics,
-            "emotions": emotions,
-            "recent_messages": [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages[-5:]
-            ]
+        # 提取用户信息（如果有）
+        user_info = {}
+        user_messages = [msg for msg in messages if msg.role == "user"]
+        if user_messages:
+            # 这里可以添加更多用户信息提取逻辑
+            pass
+            
+        return {
+            "message_count": message_count,
+            "duration": str(duration),
+            "user_info": user_info
         }
-        
-        return summary
 
-    def _extract_topics(self, messages: List[Message]) -> List[str]:
-        """提取对话中的主要话题"""
-        topics = []
-        current_topic = None
-        
-        for msg in messages:
-            if msg.role == "user":
-                if not current_topic or not self._is_related_topic(current_topic, msg.content):
-                    current_topic = msg.content
-                    topics.append(current_topic)
-        
-        return topics[-5:]  # 只返回最近5个话题
-
-    def _analyze_emotions(self, messages: List[Message]) -> List[str]:
-        """分析对话中的情感倾向"""
-        emotions = []
-        emotion_keywords = {
-            "开心": ["开心", "高兴", "快乐", "喜悦"],
-            "难过": ["难过", "伤心", "悲伤", "痛苦"],
-            "焦虑": ["焦虑", "担心", "紧张", "害怕"],
-            "愤怒": ["生气", "愤怒", "恼火", "不满"],
-            "平静": ["平静", "放松", "安心", "舒适"]
-        }
-        
-        for msg in messages:
-            if msg.role == "user":
-                for emotion, keywords in emotion_keywords.items():
-                    if any(keyword in msg.content for keyword in keywords):
-                        emotions.append(emotion)
-                        break
-        
-        return emotions[-5:]  # 只返回最近5个情感
+    def cleanup_old_sessions(self) -> None:
+        """清理过期会话"""
+        cutoff_time = datetime.utcnow() - self.max_age
+        old_messages = self.session_manager.get_messages(session_id=None)\
+            .filter(Message.created_at < cutoff_time)\
+            .all()
+            
+        for message in old_messages:
+            self.session_manager.clear_messages(message.session_id)
+            
+        self.session_manager.db.commit()
 
     def cleanup_context(self, session_id: str) -> None:
         """清理过期的上下文数据"""
@@ -268,4 +257,37 @@ class ContextManager:
         # 添加最近的对话
         recent_messages = old_messages[-self.context_window:]
         for msg in recent_messages:
-            self.session_manager.add_message(new_session_id, msg.role, msg.content) 
+            self.session_manager.add_message(new_session_id, msg.role, msg.content)
+
+    def _extract_topics(self, messages: List[Message]) -> List[str]:
+        """提取对话中的主要话题"""
+        topics = []
+        current_topic = None
+        
+        for msg in messages:
+            if msg.role == "user":
+                if not current_topic or not self._is_related_topic(current_topic, msg.content):
+                    current_topic = msg.content
+                    topics.append(current_topic)
+        
+        return topics[-5:]  # 只返回最近5个话题
+
+    def _analyze_emotions(self, messages: List[Message]) -> List[str]:
+        """分析对话中的情感倾向"""
+        emotions = []
+        emotion_keywords = {
+            "开心": ["开心", "高兴", "快乐", "喜悦"],
+            "难过": ["难过", "伤心", "悲伤", "痛苦"],
+            "焦虑": ["焦虑", "担心", "紧张", "害怕"],
+            "愤怒": ["生气", "愤怒", "恼火", "不满"],
+            "平静": ["平静", "放松", "安心", "舒适"]
+        }
+        
+        for msg in messages:
+            if msg.role == "user":
+                for emotion, keywords in emotion_keywords.items():
+                    if any(keyword in msg.content for keyword in keywords):
+                        emotions.append(emotion)
+                        break
+        
+        return emotions[-5:]  # 只返回最近5个情感 

@@ -76,6 +76,19 @@
                     </div>
                   </div>
                 </div>
+                <!-- 添加 AI 正在输入的提示 -->
+                <div v-if="isAiTyping" class="message assistant">
+                  <div class="message-content">
+                    <div class="message-bubble typing">
+                      <div class="typing-indicator">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                      </div>
+                      <div class="typing-text">正在挖掘心里的小九九...</div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="emotion-sidebar">
                 <div class="emotion-status" :class="{ animate: isStatusAnimating }">
@@ -152,6 +165,19 @@
                     </div>
                   </div>
                 </div>
+                <!-- 添加评估界面的 AI 正在输入提示 -->
+                <div v-if="isAssessmentTyping" class="message assistant">
+                  <div class="message-content">
+                    <div class="message-bubble typing assessment-typing">
+                      <div class="typing-indicator">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                      </div>
+                      <div class="typing-text">正在挖掘心里的小九九...</div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="assessment-sidebar">
                 <div class="assessment-progress">
@@ -165,7 +191,7 @@
                   <h4>当前状态</h4>
                   <div class="status-content">
                     <i class="fas fa-spinner fa-spin"></i>
-                    <p>正在评估中...</p>
+                    <p>{{ assessmentStatus }}</p>
                   </div>
                 </div>
               </div>
@@ -197,6 +223,7 @@
 import { Chart, registerables } from 'chart.js';
 import { defineComponent, onMounted, ref } from 'vue';
 import dailyQuotes from './daily_quotes.json'; // 导入鸡汤语录
+import { PHQ9 } from './assessments/phq9';
 
 Chart.register(...registerables);
 
@@ -224,12 +251,23 @@ export default defineComponent({
       assessmentInput: '',
       assessmentProgress: 0,
       isAssessmentClicked: false,
-      showAssessmentOptions: false
+      showAssessmentOptions: false,
+      assessmentStatus: "参与心理问询的途中",
+      currentAssessment: null,
+      currentQuestionIndex: 0,
+      assessmentAnswers: [],
+      isAssessmentComplete: false,
+      assessmentType: null,
+      isAiTyping: false,
+      isAssessmentTyping: false, // 新增：评估界面的等待状态
     }
   },
   mounted() {
     this.initEmotionChart();
     this.setRandomQuote();
+    
+    // 添加窗口大小变化监听
+    window.addEventListener('resize', this.scrollToBottom);
   },
   methods: {
     initEmotionChart() {
@@ -270,17 +308,46 @@ export default defineComponent({
       this.emotionChart.data.datasets[0].data = this.emotionHistory.map(h => h.value);
       this.emotionChart.update();
     },
+    scrollToBottom() {
+      this.$nextTick(() => {
+        let container;
+        if (this.currentTab === 'station') {
+          container = this.$refs.chatMessages;
+        } else if (this.currentTab === 'assessment') {
+          container = this.$refs.assessmentMessages;
+        }
+        
+        if (container) {
+          // 使用平滑滚动
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      });
+    },
     async sendMessage() {
-      if (!this.userInput.trim()) return
-      const now = new Date()
-      const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      if (!this.userInput.trim()) return;
+      
+      const now = new Date();
+      const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      
+      // 添加用户消息
       this.messages.push({
         role: 'user',
         content: this.userInput,
         time: time
-      })
-      const message = this.userInput
-      this.userInput = ''
+      });
+      
+      const message = this.userInput;
+      this.userInput = '';
+      
+      // 立即滚动到底部
+      this.scrollToBottom();
+      
+      // 显示 AI 正在输入
+      this.isAiTyping = true;
+      
       try {
         const response = await fetch('http://localhost:8000/api/chat', {
           method: 'POST',
@@ -289,16 +356,25 @@ export default defineComponent({
             message: message,
             session_id: this.sessionId
           })
-        })
-        const data = await response.json()
+        });
+        
+        const data = await response.json();
         if (data.session_id) {
-          this.sessionId = data.session_id
+          this.sessionId = data.session_id;
         }
+        
+        // 隐藏 AI 正在输入
+        this.isAiTyping = false;
+        
+        // 添加助手回复
         this.messages.push({
           role: 'assistant',
           content: data.response,
           time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-        })
+        });
+        
+        // 再次滚动到底部
+        this.scrollToBottom();
         
         // 更新情绪状态
         if (data.emotion) {
@@ -309,7 +385,8 @@ export default defineComponent({
           this.updateEmotionChart(data.emotion);
         }
       } catch (error) {
-        console.error('Error:', error)
+        console.error('Error:', error);
+        this.isAiTyping = false;
       }
     },
     getEmotionIcon(value) {
@@ -403,31 +480,265 @@ export default defineComponent({
       this.currentTab = tab;
       this.sidebarVisible = false;
     },
-    sendAssessmentMessage() {
+    selectAssessment(type) {
+      console.log('Selected assessment:', type);
+      this.showAssessmentOptions = false;
+      this.currentAssessment = type;
+      this.assessmentStatus = "正在进行心理调查";
+      this.assessmentProgress = 0;
+      this.currentQuestionIndex = 0;
+      this.assessmentAnswers = [];
+      this.isAssessmentComplete = false;
+      this.assessmentType = type;
+      
+      // 更新评估消息
+      this.assessmentMessages = [{
+        role: 'assistant',
+        content: `来自 ${type} 的心灵慰问，请跟随南心完成下面的任务。`,
+        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      }];
+
+      // 开始评估流程
+      this.startAssessment();
+    },
+
+    async startAssessment() {
+      if (this.assessmentType === 'PHQ-9') {
+        await this.startPHQ9Assessment();
+      }
+    },
+
+    async startPHQ9Assessment() {
+      try {
+        const response = await fetch('http://localhost:8000/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: "开始 PHQ-9 评估",
+            session_id: this.sessionId,
+            context: {
+              type: 'assessment_start',
+              assessment_type: 'PHQ-9'
+            }
+          })
+        });
+        
+        const data = await response.json();
+        if (data.session_id) {
+          this.sessionId = data.session_id;
+        }
+        
+        await this.addAssistantMessage(data.response);
+        await this.askNextQuestion();
+      } catch (error) {
+        console.error('Error:', error);
+        await this.addAssistantMessage("你好，我是南心。接下来我会和你进行一个简单的心理评估，请根据你的真实感受回答。\n\n" +
+          "这些问题都是关于你过去两周的感受，请选择最符合你情况的选项。\n\n" +
+          "准备好了吗？让我们开始吧！");
+        await this.askNextQuestion();
+      }
+    },
+
+    async askNextQuestion() {
+      if (this.currentQuestionIndex >= PHQ9.questions.length) {
+        await this.completeAssessment();
+        return;
+      }
+
+      const question = PHQ9.questions[this.currentQuestionIndex];
+      const options = question.options.map(opt => `${opt.value}. ${opt.text}`).join('\n');
+      
+      await this.addAssistantMessage(`问题 ${question.id}：${question.text}\n\n${options}`);
+      
+      this.assessmentProgress = Math.round((this.currentQuestionIndex / PHQ9.questions.length) * 100);
+    },
+
+    async sendAssessmentMessage() {
       if (!this.assessmentInput.trim()) return;
-      const now = new Date();
-      const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
       
-      this.assessmentMessages.push({
-        role: 'user',
-        content: this.assessmentInput,
-        time: time
-      });
-      
-      // 模拟进度更新
-      this.assessmentProgress = Math.min(this.assessmentProgress + 10, 100);
-      
-      const message = this.assessmentInput;
+      const userMessage = this.assessmentInput;
       this.assessmentInput = '';
       
-      // TODO: 实现与后端的实际交互
-      setTimeout(() => {
-        this.assessmentMessages.push({
-          role: 'assistant',
-          content: '感谢您的回答，我们正在分析中...',
-          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      await this.addUserMessage(userMessage);
+      this.isAssessmentTyping = true;
+
+      if (this.isAssessmentComplete) {
+        await this.handlePostAssessmentChat(userMessage);
+        this.isAssessmentTyping = false;
+        return;
+      }
+
+      const answer = this.parseUserAnswer(userMessage);
+      if (answer !== null) {
+        this.assessmentAnswers.push({
+          questionId: PHQ9.questions[this.currentQuestionIndex].id,
+          answer: answer
         });
-      }, 1000);
+        
+        this.currentQuestionIndex++;
+        await this.askNextQuestion();
+      } else {
+        await this.addAssistantMessage("抱歉，我没有理解你的回答。请选择 0-3 中的一个数字，或者直接告诉我你的选择（完全不会/有几天/一半以上的天数/几乎每天）。");
+      }
+      this.isAssessmentTyping = false;
+    },
+
+    parseUserAnswer(message) {
+      // 移除多余的空格和标点符号
+      message = message.trim().replace(/[，。,.、]/g, '');
+      
+      // 尝试从消息中提取数字答案
+      const numMatch = message.match(/^[0-3]$/);
+      if (numMatch) return parseInt(numMatch[0]);
+
+      // 尝试匹配文字答案
+      const textMap = {
+        '完全不会': 0,
+        '完全不会的': 0,
+        '没有': 0,
+        '不会': 0,
+        '有几天': 1,
+        '几天': 1,
+        '偶尔': 1,
+        '一半以上的天数': 2,
+        '一半以上': 2,
+        '经常': 2,
+        '几乎每天': 3,
+        '每天': 3,
+        '总是': 3
+      };
+
+      // 检查消息中是否包含任何匹配的文字答案
+      for (const [text, value] of Object.entries(textMap)) {
+        if (message.includes(text)) return value;
+      }
+
+      // 如果无法解析答案，返回 null
+      return null;
+    },
+
+    async completeAssessment() {
+      this.isAssessmentComplete = true;
+      this.assessmentProgress = 100;
+      this.isAssessmentTyping = true;
+
+      const totalScore = this.assessmentAnswers.reduce((sum, ans) => sum + ans.answer, 0);
+      const result = this.getAssessmentResult(totalScore);
+      
+      try {
+        const response = await fetch('http://localhost:8000/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: "评估完成",
+            session_id: this.sessionId,
+            context: {
+              type: 'assessment_complete',
+              assessment_type: this.assessmentType,
+              assessment_answers: this.assessmentAnswers,
+              total_score: totalScore,
+              result: result
+            }
+          })
+        });
+        
+        const data = await response.json();
+        if (data.session_id) {
+          this.sessionId = data.session_id;
+        }
+        
+        this.isAssessmentTyping = false;
+        await this.addAssistantMessage(data.response);
+      } catch (error) {
+        console.error('Error:', error);
+        this.isAssessmentTyping = false;
+        await this.addAssistantMessage(
+          `感谢你的配合，评估已经完成。\n\n` +
+          `你的得分是：${totalScore}分\n` +
+          `评估结果：${result.level}\n\n` +
+          `${result.description}\n\n` +
+          `建议：\n${result.recommendations.join('\n')}\n\n` +
+          `现在我们可以继续聊聊你的感受，或者你有其他想说的吗？`
+        );
+      }
+
+      const suicideAnswer = this.assessmentAnswers.find(ans => ans.questionId === 9);
+      if (suicideAnswer && suicideAnswer.answer >= PHQ9.scoring.suicide.threshold) {
+        await this.addAssistantMessage(PHQ9.scoring.suicide.warning);
+      }
+    },
+
+    getAssessmentResult(score) {
+      const interpretation = PHQ9.scoring.total.interpretation.find(
+        int => score >= int.range[0] && score <= int.range[1]
+      );
+
+      let recommendations = [];
+      if (score <= 9) {
+        recommendations = PHQ9.recommendations.mild;
+      } else if (score <= 19) {
+        recommendations = PHQ9.recommendations.moderate;
+      } else {
+        recommendations = PHQ9.recommendations.severe;
+      }
+
+      return {
+        ...interpretation,
+        recommendations
+      };
+    },
+
+    async handlePostAssessmentChat(message) {
+      try {
+        const response = await fetch('http://localhost:8000/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: message,
+            session_id: this.sessionId,
+            context: {
+              type: 'assessment',
+              assessment_type: this.assessmentType,
+              assessment_answers: this.assessmentAnswers,
+              is_complete: this.isAssessmentComplete
+            }
+          })
+        });
+        
+        const data = await response.json();
+        if (data.session_id) {
+          this.sessionId = data.session_id;
+        }
+        
+        await this.addAssistantMessage(data.response);
+      } catch (error) {
+        console.error('Error:', error);
+        await this.addAssistantMessage("抱歉，我现在无法回应。请稍后再试。");
+      }
+    },
+
+    async addAssistantMessage(content) {
+      this.assessmentMessages.push({
+        role: 'assistant',
+        content,
+        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      });
+      
+      // 确保在消息添加后滚动
+      await this.$nextTick();
+      this.scrollToBottom();
+    },
+
+    async addUserMessage(content) {
+      this.assessmentMessages.push({
+        role: 'user',
+        content,
+        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      });
+      
+      // 确保在消息添加后滚动
+      await this.$nextTick();
+      this.scrollToBottom();
     },
     handleAssessmentClick() {
       this.isAssessmentClicked = true;
@@ -438,11 +749,23 @@ export default defineComponent({
         this.isAssessmentClicked = false;
       }, 800);
     },
-    selectAssessment(type) {
-      console.log('Selected assessment:', type);
-      this.showAssessmentOptions = false;
-      // TODO: 实现选择评估表后的逻辑
+  },
+  watch: {
+    messages: {
+      handler() {
+        this.scrollToBottom();
+      },
+      deep: true
+    },
+    assessmentMessages: {
+      handler() {
+        this.scrollToBottom();
+      },
+      deep: true
     }
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.scrollToBottom);
   }
 })
 </script>
@@ -936,6 +1259,7 @@ body {
   min-height: calc(100vh - 80px);
   border: none;
   position: relative;
+  overflow: hidden; /* 防止内容溢出 */
 }
 
 .chat-header {
@@ -1054,8 +1378,9 @@ body {
   display: flex;
   gap: 20px;
   padding: 20px;
-  overflow: hidden;
+  overflow: hidden; /* 防止内容溢出 */
   position: relative;
+  height: calc(100vh - 240px); /* 减去头部和输入框的高度 */
 }
 
 .chat-messages {
@@ -1068,6 +1393,8 @@ body {
   background: transparent;
   min-width: 0;
   scroll-behavior: smooth;
+  height: 100%; /* 确保占满容器高度 */
+  position: relative;
 }
 
 .message {
@@ -1075,6 +1402,7 @@ body {
   flex-direction: column;
   max-width: 85%;
   animation: fadeIn 0.3s ease;
+  flex-shrink: 0; /* 防止消息被压缩 */
 }
 
 @keyframes fadeIn {
@@ -1147,7 +1475,9 @@ body {
   flex-direction: column;
   gap: 20px;
   backdrop-filter: blur(10px);
-  flex-shrink: 0;
+  flex-shrink: 0; /* 防止侧边栏被压缩 */
+  height: 100%;
+  overflow-y: auto;
 }
 
 .emotion-status {
@@ -1342,6 +1672,7 @@ body {
     0 -2px 5px rgba(0, 0, 0, 0.02);
   position: relative;
   z-index: 2;
+  flex-shrink: 0; /* 防止输入区域被压缩 */
 }
 
 .input-wrapper {
@@ -1421,7 +1752,16 @@ textarea:focus {
 /* 响应式布局优化 */
 @media (max-width: 768px) {
   .chat-layout {
+    height: calc(100vh - 200px); /* 移动端调整高度 */
     padding: 10px;
+  }
+
+  .chat-messages {
+    padding: 10px;
+  }
+
+  .input-area {
+    padding: 15px;
   }
 
   .emotion-sidebar {
@@ -1658,26 +1998,6 @@ textarea:focus {
     transform: translate(0, 0) rotate(360deg) scale(1);
     opacity: 0.6;
   }
-}
-
-/* 优化滚动条样式 */
-.chat-messages::-webkit-scrollbar {
-  width: 8px;
-}
-
-.chat-messages::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.chat-messages::-webkit-scrollbar-thumb {
-  background: var(--primary-color);
-  border-radius: 4px;
-  opacity: 0.5;
-}
-
-.chat-messages::-webkit-scrollbar-thumb:hover {
-  background: #ff9eb5;
 }
 
 /* 鸡汤语录浮动框样式 */
@@ -1979,7 +2299,9 @@ textarea:focus {
   flex-direction: column;
   gap: 20px;
   backdrop-filter: blur(10px);
-  flex-shrink: 0;
+  flex-shrink: 0; /* 防止侧边栏被压缩 */
+  height: 100%;
+  overflow-y: auto;
 }
 
 .assessment-progress {
@@ -2029,12 +2351,27 @@ textarea:focus {
     0 4px 15px rgba(0, 0, 0, 0.05),
     0 1px 3px rgba(0, 0, 0, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.assessment-status:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 8px 25px rgba(255, 182, 193, 0.2),
+    0 4px 10px rgba(255, 182, 193, 0.1);
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 182, 193, 0.4);
 }
 
 .assessment-status h4 {
   margin: 0 0 15px 0;
   color: var(--primary-color);
   font-size: 1.1em;
+  transition: color 0.3s ease;
+}
+
+.assessment-status:hover h4 {
+  color: #ff4d6d;
 }
 
 .status-content {
@@ -2042,15 +2379,35 @@ textarea:focus {
   align-items: center;
   gap: 10px;
   color: var(--primary-color);
+  transition: all 0.3s ease;
 }
 
 .status-content i {
   font-size: 1.2em;
+  animation: spin 2s linear infinite;
 }
 
 .status-content p {
   margin: 0;
   font-size: 0.9em;
+  transition: color 0.3s ease;
+}
+
+.assessment-status:hover .status-content {
+  transform: translateX(5px);
+}
+
+.assessment-status:hover .status-content p {
+  color: #ff4d6d;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .assessment-options {
@@ -2127,5 +2484,132 @@ textarea:focus {
   100% {
     transform: scale(1) rotate(0);
   }
+}
+
+/* 添加打字动画样式 */
+.typing {
+  background: linear-gradient(135deg, #fff0f6 0%, #ffd6e0 100%) !important;
+  min-width: 120px;
+  padding: 15px 20px !important;
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  animation: typing-dot 1.4s infinite ease-in-out;
+}
+
+.dot:nth-child(1) { animation-delay: 0s; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-text {
+  color: var(--primary-color);
+  font-size: 0.9em;
+  text-align: center;
+  font-family: 'ZCOOL KuaiLe', 'FZYaoti', 'STSong', 'KaiTi', 'Arial', sans-serif;
+  letter-spacing: 1px;
+  animation: typing-text 2s infinite;
+}
+
+@keyframes typing-text {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 优化消息气泡样式 */
+.message-bubble {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.message-bubble::before {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 20px;
+  width: 12px;
+  height: 12px;
+  background: inherit;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  z-index: -1;
+}
+
+.message.user .message-bubble::before {
+  left: auto;
+  right: 20px;
+}
+
+/* 添加消息出现动画 */
+.message {
+  animation: message-appear 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes message-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 评估等待动画样式 */
+.assessment-typing {
+  background: linear-gradient(135deg, #fff0f6 0%, #ffd6e0 100%) !important;
+  min-width: 180px;
+  padding: 15px 20px !important;
+}
+
+.assessment-typing .typing-text {
+  font-size: 1em;
+  color: #ff4d6d;
+  font-weight: 500;
+}
+
+/* 区分普通聊天和评估聊天的样式 */
+.chat-container[data-type="station"] .message-bubble {
+  background: white;
+}
+
+.chat-container[data-type="assessment"] .message-bubble {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* 优化评估界面的滚动条 */
+.chat-container[data-type="assessment"] .chat-messages::-webkit-scrollbar-thumb {
+  background: #ff4d6d;
+}
+
+.chat-container[data-type="assessment"] .chat-messages::-webkit-scrollbar-thumb:hover {
+  background: #ff6b8b;
 }
 </style> 

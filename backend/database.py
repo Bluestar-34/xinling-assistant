@@ -1,16 +1,23 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
+from contextlib import contextmanager
 import os
 from datetime import datetime, timedelta
+from typing import Generator
 
-# 数据库配置
-DATABASE_URL = "sqlite:///./chat.db"
+# 创建数据库引擎
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+# 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 数据库会话管理
-def get_db():
+# 创建基类
+Base = declarative_base()
+
+def get_db() -> Generator[Session, None, None]:
+    """获取数据库会话"""
     db = SessionLocal()
     try:
         yield db
@@ -19,23 +26,40 @@ def get_db():
 
 # 会话管理
 class SessionManager:
-    def __init__(self, db):
+    def __init__(self, db: Session):
         self.db = db
         self.max_history = 20  # 增加最大历史消息数
         self.max_age = timedelta(hours=24)  # 会话最大保存时间
 
-    def create_session(self, session_id):
-        """创建新会话"""
+    def create_session(self, session_id: str) -> None:
+        """创建新的会话"""
         from models import Session
-        session = Session(session_id=session_id)
+        session = Session(id=session_id)
         self.db.add(session)
         self.db.commit()
-        return session
 
-    def get_session(self, session_id):
+    def get_session(self, session_id: str):
         """获取会话"""
         from models import Session
-        return self.db.query(Session).filter(Session.session_id == session_id).first()
+        return self.db.query(Session).filter(Session.id == session_id).first()
+
+    def delete_session(self, session_id: str) -> None:
+        """删除会话"""
+        from models import Session
+        session = self.db.query(Session).filter(Session.id == session_id).first()
+        if session:
+            self.db.delete(session)
+            self.db.commit()
+
+    @contextmanager
+    def session_scope(self):
+        """会话作用域管理器"""
+        try:
+            yield self.db
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
     def add_message(self, session_id, role, content):
         """添加消息到会话"""
